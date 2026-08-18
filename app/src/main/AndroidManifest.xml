@@ -1,6 +1,41 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Своё уведомление «распознана новая операция». Интернета у приложения по-прежнему нет. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!--
+        Пакеты банковских приложений: нужны, чтобы показать в настройках, какие из них
+        установлены. Доступ к списку всех приложений (QUERY_ALL_PACKAGES) НЕ запрашивается.
+    -->
+    <queries>
+        <package android:name="com.idamob.tinkoff.android" />
+        <package android:name="ru.tinkoff.mobile" />
+        <package android:name="com.tbank.mobile" />
+        <package android:name="ru.sberbankmobile" />
+        <package android:name="ru.sberbankmobile_alpha" />
+        <package android:name="ru.sberbank.online" />
+        <package android:name="ru.alfabank.mobile.android" />
+        <package android:name="ru.alfabank.oavdo.amc" />
+        <package android:name="ru.vtb24.mobilebanking.android" />
+        <package android:name="ru.vtb.mobilebank" />
+        <package android:name="ru.raiffeisennews" />
+        <package android:name="ru.raiffeisen.mobile.new" />
+        <package android:name="ru.gazprombank.android.mobilebank.app" />
+        <package android:name="ru.mtsbank.mobile" />
+        <package android:name="ru.ozon.app.android" />
+        <package android:name="ru.yandex.bank" />
+        <package android:name="com.yandex.bank" />
+        <package android:name="ru.rshb.mbank" />
+        <package android:name="logo.com.mobilebank.app" />
+        <package android:name="com.google.android.apps.messaging" />
+        <package android:name="com.samsung.android.messaging" />
+        <package android:name="com.android.messaging" />
+        <package android:name="com.android.mms" />
+        <package android:name="com.miui.smsextra" />
+        <package android:name="com.xiaomi.mms" />
+    </queries>
+
     <application
         android:name=".SpendApp"
         android:allowBackup="true"
@@ -16,6 +51,7 @@
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
+            android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.SpendTracker">
             <intent-filter>
@@ -23,6 +59,25 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+            Слушатель уведомлений банков. Разрешение выдаётся пользователем вручную
+            в системных настройках; сервис читает только пакеты из BankCatalog.
+        -->
+        <service
+            android:name=".notifications.BankNotificationListener"
+            android:exported="false"
+            android:label="@string/notification_listener_label"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- Кнопки «Подтвердить» / «Отклонить» в нашем уведомлении. Только внутренние интенты. -->
+        <receiver
+            android:name=".notifications.PendingActionReceiver"
+            android:exported="false" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

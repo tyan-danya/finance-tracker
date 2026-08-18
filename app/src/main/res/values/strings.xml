@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Траты</string>
+    <!-- Показывается в системном списке «Доступ к уведомлениям». -->
+    <string name="notification_listener_label">Траты — автоучёт из уведомлений банков</string>
 </resources>

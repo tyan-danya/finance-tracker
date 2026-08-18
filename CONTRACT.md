@@ -217,6 +217,81 @@ data class ChartLinePoint(val label: String, val value: Long)
 @Composable fun CategoriesScreen(repository: ExpenseRepository, onBack: () -> Unit)
 // ui/exportui/ExportScreen.kt
 @Composable fun ExportScreen(repository: ExpenseRepository)
+// ui/pending/PendingScreen.kt
+@Composable fun PendingScreen(repository: ExpenseRepository, settings: SettingsStore,
+                              onOpenSettings: () -> Unit)
+// ui/settings/SettingsScreen.kt
+@Composable fun SettingsScreen(settings: SettingsStore, onOpenImport: () -> Unit,
+                               onOpenExport: () -> Unit, onOpenCategories: () -> Unit)
+```
+
+### Автоучёт из уведомлений (`notifications/`, БД v3)
+
+Правило, которое не нарушается: **из уведомления трата не создаётся никогда** — только
+запись в `pending_operations`. В `expenses` она попадает лишь через
+`confirmPendingOperation`, то есть по действию пользователя.
+
+```kotlin
+// notifications/BankCatalog.kt — какие пакеты слушаем
+data class BankSource(val code: String, val title: String, val packages: Set<String>,
+                      val enabledByDefault: Boolean = true, val isSms: Boolean = false)
+object BankCatalog {
+    val sources: List<BankSource>
+    val defaultEnabledCodes: Set<String>
+    fun byPackage(packageName: String?): BankSource?
+    fun title(code: String): String
+    fun bankBySmsSender(sender: String?): String?
+}
+
+// notifications/NotificationParser.kt — чистая функция, без Android
+object NotificationParser {
+    fun parse(packageName: String, title: String?, text: String?, postedAtMillis: Long): ParsedNotification?
+}
+enum class NotificationKind { PURCHASE, WITHDRAWAL, TRANSFER_OUT, INCOME, REFUND, UNKNOWN }
+data class ParsedNotification(/* bank, kind, amountMinor, currency, merchant, cardMask, rawText… */) {
+    val isRecognized: Boolean
+    val dedupKey: String        // он же externalId подтверждённой траты
+}
+
+// notifications/MerchantNormalizer.kt
+object MerchantNormalizer {
+    fun display(raw: String?): String
+    fun key(raw: String?): String            // латиница, верхний регистр, без ООО/городов/цифр
+    fun matches(a: String?, b: String?): Boolean
+}
+object MerchantDictionary { fun suggest(merchant: String?): BankCategoryMapper.Suggestion? }
+
+// notifications/ — Android-часть
+class BankNotificationListener : NotificationListenerService()
+class NotificationIntake(repository, settings) { suspend fun handle(pkg, title, text, postedAt): Long? }
+class PendingNotifier(context) { fun ensureChannel(); fun notifyPending(op); fun cancel(id) }
+class PendingActionReceiver : BroadcastReceiver()   // кнопки в шторке
+object NotificationAccess {
+    fun isGranted(context): Boolean
+    fun settingsIntent(): Intent
+    fun isInstalled(context, source: BankSource): Boolean
+}
+
+// data/SettingsStore.kt
+data class AutoCaptureSettings(val enabled: Boolean, val enabledBanks: Set<String>,
+                               val notifyOnCapture: Boolean, val onboardingShown: Boolean)
+class SettingsStore(context) {
+    fun current(): AutoCaptureSettings
+    fun observe(): Flow<AutoCaptureSettings>
+    fun setEnabled(enabled: Boolean); fun setBankEnabled(code: String, enabled: Boolean)
+    fun setNotifyOnCapture(enabled: Boolean); fun setOnboardingShown()
+}
+
+// data/ExpenseRepository.kt — новые методы (существующие не менялись)
+fun observePendingOperations(): Flow<List<PendingOperation>>
+fun observePendingCount(): Flow<Int>
+suspend fun addPendingOperation(entry: PendingEntry): Long?
+suspend fun getPendingOperation(id: Long): PendingOperation?
+suspend fun setPendingCategory(id: Long, categoryId: Long?, subcategoryId: Long?)
+suspend fun confirmPendingOperation(id: Long, draft: ExpenseDraft): ConfirmResult
+suspend fun rejectPendingOperation(id: Long): PendingEntry?     // вернуть можно через add
+suspend fun rejectAllPendingOperations(): Int
+suspend fun findSuspectedDuplicates(operations: List<PendingOperation>, windowDays: Int = 1): Set<Long>
 ```
 
 ### Общие требования к коду

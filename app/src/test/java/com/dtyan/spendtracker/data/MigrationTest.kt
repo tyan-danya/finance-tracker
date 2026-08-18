@@ -103,4 +103,40 @@ class MigrationTest {
             assertThat(c.getInt(0)).isEqualTo(0)
         }
     }
+
+    @Test
+    fun `миграция 2 to 3 добавляет очередь уведомлений и не трогает траты`() {
+        db.insert("categories", 0, ContentValues().apply {
+            put("id", 1L); put("name", "Продукты"); put("icon", "🛒"); put("colorArgb", -1)
+            put("isBuiltIn", 1); put("sortOrder", 0); put("archived", 0)
+        })
+        db.insert("expenses", 0, ContentValues().apply {
+            put("id", 1L); put("amountMinor", 12345L); put("currency", "RUB"); put("categoryId", 1L)
+            putNull("subcategoryId"); put("epochDay", 20000L); put("note", "тест")
+            put("paymentMethod", "CARD"); put("createdAt", 111L)
+        })
+
+        AppDatabase.MIGRATION_1_2.migrate(db)
+        AppDatabase.MIGRATION_2_3.migrate(db)
+
+        // Трата пережила обе миграции.
+        db.query("SELECT amountMinor, note FROM expenses WHERE id = 1").use { c ->
+            assertThat(c.moveToFirst()).isTrue()
+            assertThat(c.getLong(0)).isEqualTo(12345L)
+            assertThat(c.getString(1)).isEqualTo("тест")
+        }
+
+        // Очередь создана и пуста.
+        db.query("SELECT COUNT(*) FROM pending_operations").use { c ->
+            assertThat(c.moveToFirst()).isTrue()
+            assertThat(c.getInt(0)).isEqualTo(0)
+        }
+
+        // Уникальный индекс по ключу дедупликации на месте — повтор уведомления не пройдёт.
+        val indexes = mutableListOf<String>()
+        db.query("PRAGMA index_list(pending_operations)").use { c ->
+            while (c.moveToNext()) indexes.add(c.getString(1))
+        }
+        assertThat(indexes).contains("index_pending_operations_dedupKey")
+    }
 }

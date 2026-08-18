@@ -13,8 +13,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SubcategoryEntity::class,
         ExpenseEntity::class,
         ImportBatchEntity::class,
+        PendingOperationEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -22,6 +23,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun categoryDao(): CategoryDao
     abstract fun expenseDao(): ExpenseDao
     abstract fun importBatchDao(): ImportBatchDao
+    abstract fun pendingOperationDao(): PendingOperationDao
 
     companion object {
         private const val NAME = "spendtracker.db"
@@ -73,6 +75,47 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Миграция 2 → 3: очередь операций, распознанных из банковских уведомлений.
+         * Только CREATE — существующие таблицы не трогаются вовсе.
+         */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS pending_operations (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        dedupKey TEXT NOT NULL,
+                        packageName TEXT NOT NULL,
+                        bank TEXT NOT NULL,
+                        amountMinor INTEGER NOT NULL,
+                        currency TEXT NOT NULL,
+                        type TEXT NOT NULL,
+                        merchant TEXT,
+                        cardMask TEXT,
+                        postedAt INTEGER NOT NULL,
+                        epochDay INTEGER NOT NULL,
+                        status TEXT NOT NULL,
+                        suggestedCategoryId INTEGER,
+                        suggestedSubcategoryId INTEGER,
+                        suggestionSource TEXT,
+                        title TEXT,
+                        rawText TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_pending_operations_dedupKey " +
+                        "ON pending_operations (dedupKey)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_pending_operations_postedAt " +
+                        "ON pending_operations (postedAt)"
+                )
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -82,7 +125,7 @@ abstract class AppDatabase : RoomDatabase() {
 
         private fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, NAME)
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .addCallback(object : Callback() {
                     override fun onOpen(db: SupportSQLiteDatabase) {
                         super.onOpen(db)

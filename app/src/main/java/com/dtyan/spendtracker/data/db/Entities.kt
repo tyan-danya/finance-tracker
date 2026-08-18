@@ -105,6 +105,55 @@ data class ExpenseEntity(
     val importBatchId: Long? = null,
 )
 
+/**
+ * Операция, распознанная из банковского уведомления и ожидающая решения пользователя.
+ *
+ * Лежит в отдельной таблице, а не в `expenses` со `status = PENDING`, намеренно:
+ * ни один существующий запрос списка, статистики и экспорта не видит черновики —
+ * значит, они физически не могут «протечь» в расчёты (см. docs/bank-integration.md, §11.1).
+ */
+@Entity(
+    tableName = "pending_operations",
+    indices = [
+        // Повторный пуш той же операции (обновление уведомления) не создаёт вторую строку.
+        Index(value = ["dedupKey"], unique = true),
+        Index(value = ["postedAt"]),
+    ],
+)
+data class PendingOperationEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    /** Ключ дедупликации уведомления: банк + сумма + мерчант + текст + окно времени. */
+    val dedupKey: String,
+    val packageName: String,
+    /** Код банка-источника: TBANK / SBER / ALFA / ... */
+    val bank: String,
+    /** Сумма в копейках, всегда положительная. 0 — если сумму распознать не удалось. */
+    val amountMinor: Long,
+    val currency: String = "RUB",
+    /** EXPENSE / INCOME. */
+    val type: String = "EXPENSE",
+    /** Сырое имя мерчанта/отправителя из текста уведомления. */
+    val merchant: String? = null,
+    /** Последние цифры карты, если есть в тексте. */
+    val cardMask: String? = null,
+    /** Время уведомления (мс) — оно же принимается за время операции. */
+    val postedAt: Long,
+    /** Дата операции как epochDay — то же поле, что и у трат. */
+    val epochDay: Long,
+    /** PENDING — распознано; UNPARSED — текст банковский, но разобрать не удалось. */
+    val status: String = "PENDING",
+    /** Предложенная категория (id), если удалось подобрать. NULL — пользователь выберет сам. */
+    val suggestedCategoryId: Long? = null,
+    val suggestedSubcategoryId: Long? = null,
+    /** Откуда взялось предложение: HISTORY / DICTIONARY / KEYWORD — показываем как «предположение». */
+    val suggestionSource: String? = null,
+    /** Заголовок уведомления. */
+    val title: String? = null,
+    /** Текст уведомления целиком — для переразбора и показа пользователю. */
+    val rawText: String,
+    val createdAt: Long,
+)
+
 /** Журнал импортов — для показа истории и отката одной кнопкой. */
 @Entity(tableName = "import_batches")
 data class ImportBatchEntity(

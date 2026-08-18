@@ -15,6 +15,13 @@ data class DedupKeyRow(
     val type: String,
 )
 
+/** Мерчант подтверждённой траты и выбранная для него категория — основа автокатегоризации. */
+data class MerchantHistoryRow(
+    val merchantRaw: String,
+    val categoryId: Long,
+    val subcategoryId: Long?,
+)
+
 /** Плоская строка джойна трат с именами категорий. */
 data class ExpenseRow(
     val id: Long,
@@ -176,6 +183,10 @@ interface ExpenseDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertIgnore(expense: ExpenseEntity): Long
 
+    /** Есть ли уже трата с таким ключом операции — точечная проверка вместо выборки всех ключей. */
+    @Query("SELECT COUNT(*) FROM expenses WHERE source = :source AND externalId = :externalId")
+    suspend fun countByExternalId(source: String, externalId: String): Int
+
     /** Уже импортированные ключи операций данного источника — для дедупликации до вставки. */
     @Query("SELECT externalId FROM expenses WHERE source = :source AND externalId IS NOT NULL")
     suspend fun existingExternalIds(source: String): List<String>
@@ -183,6 +194,27 @@ interface ExpenseDao {
     /** Компактные ключи всех существующих операций — для эвристического поиска дублей. */
     @Query("SELECT epochDay, amountMinor, type FROM expenses")
     suspend fun allDedupKeys(): List<DedupKeyRow>
+
+    /**
+     * Ключи операций за окно дат — для отметки «возможный дубликат» у распознанных уведомлений.
+     * Границы включительно.
+     */
+    @Query("SELECT epochDay, amountMinor, type FROM expenses WHERE epochDay BETWEEN :fromDay AND :toDay")
+    suspend fun dedupKeysBetween(fromDay: Long, toDay: Long): List<DedupKeyRow>
+
+    /**
+     * История «мерчант → категория» по подтверждённым тратам. Используется для подсказки
+     * категории новым операциям того же мерчанта (обучение на подтверждениях, §12.3).
+     */
+    @Query(
+        """
+        SELECT merchantRaw, categoryId, subcategoryId FROM expenses
+        WHERE merchantRaw IS NOT NULL AND TRIM(merchantRaw) <> ''
+        ORDER BY createdAt DESC
+        LIMIT 500
+        """
+    )
+    suspend fun merchantHistory(): List<MerchantHistoryRow>
 
     @Update
     suspend fun update(expense: ExpenseEntity)
@@ -198,6 +230,52 @@ interface ExpenseDao {
 
     @Query("SELECT COUNT(*) FROM expenses")
     suspend fun count(): Int
+}
+
+@Dao
+interface PendingOperationDao {
+
+    @Query("SELECT * FROM pending_operations ORDER BY postedAt DESC")
+    fun observeAll(): Flow<List<PendingOperationEntity>>
+
+    /** Счётчик для бейджа на вкладке — отдельным запросом, чтобы не тянуть весь список. */
+    @Query("SELECT COUNT(*) FROM pending_operations")
+    fun observeCount(): Flow<Int>
+
+    @Query("SELECT * FROM pending_operations ORDER BY postedAt DESC")
+    suspend fun getAll(): List<PendingOperationEntity>
+
+    @Query("SELECT * FROM pending_operations WHERE id = :id")
+    suspend fun getById(id: Long): PendingOperationEntity?
+
+    /** Повтор того же уведомления игнорируется молча (уникальный индекс по dedupKey). */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertIgnore(operation: PendingOperationEntity): Long
+
+    @Update
+    suspend fun update(operation: PendingOperationEntity)
+
+    @Query("DELETE FROM pending_operations WHERE id = :id")
+    suspend fun delete(id: Long)
+
+    @Query("DELETE FROM pending_operations")
+    suspend fun deleteAll()
+
+    @Query("SELECT COUNT(*) FROM pending_operations")
+    suspend fun count(): Int
+
+    /**
+     * Сколько раз ровно такое уведомление уже приходило за последние минуты.
+     * Система пересылает уведомление при каждом обновлении — так мы гасим повторы,
+     * даже если они попали в разные окна `dedupKey`.
+     */
+    @Query(
+        """
+        SELECT COUNT(*) FROM pending_operations
+        WHERE bank = :bank AND amountMinor = :amountMinor AND rawText = :rawText AND postedAt >= :since
+        """
+    )
+    suspend fun countSimilarRecent(bank: String, amountMinor: Long, rawText: String, since: Long): Int
 }
 
 @Dao
