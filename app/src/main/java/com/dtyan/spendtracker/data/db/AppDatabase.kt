@@ -14,8 +14,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ExpenseEntity::class,
         ImportBatchEntity::class,
         PendingOperationEntity::class,
+        DiagLogEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -24,6 +25,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun expenseDao(): ExpenseDao
     abstract fun importBatchDao(): ImportBatchDao
     abstract fun pendingOperationDao(): PendingOperationDao
+    abstract fun diagLogDao(): DiagLogDao
 
     companion object {
         private const val NAME = "spendtracker.db"
@@ -116,6 +118,27 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Миграция 3 → 4: журнал диагностики автоучёта. Только CREATE, данные не трогаем.
+         */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS diag_log (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        at INTEGER NOT NULL,
+                        stage TEXT NOT NULL,
+                        level TEXT NOT NULL,
+                        message TEXT NOT NULL,
+                        details TEXT
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_diag_log_at ON diag_log (at)")
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -125,7 +148,7 @@ abstract class AppDatabase : RoomDatabase() {
 
         private fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, NAME)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .addCallback(object : Callback() {
                     override fun onOpen(db: SupportSQLiteDatabase) {
                         super.onOpen(db)

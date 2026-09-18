@@ -109,7 +109,12 @@ class ExpenseRepository(
      * Создаёт категорию. Если категория с таким именем уже есть — возвращает её id
      * (уникальный индекс + IGNORE делают вставку безопасной).
      */
-    suspend fun addCategory(name: String, icon: String, colorArgb: Int): Long {
+    suspend fun addCategory(
+        name: String,
+        icon: String,
+        colorArgb: Int,
+        isIncome: Boolean = false,
+    ): Long {
         val trimmed = name.trim()
         require(trimmed.isNotEmpty()) { "Название категории не может быть пустым" }
         val existing = categoryDao.findCategoryByName(trimmed)
@@ -121,6 +126,7 @@ class ExpenseRepository(
                 colorArgb = colorArgb,
                 isBuiltIn = false,
                 sortOrder = Int.MAX_VALUE,
+                isIncome = isIncome,
             )
         )
         return if (id > 0) id else categoryDao.findCategoryByName(trimmed)?.id ?: -1L
@@ -347,6 +353,9 @@ class ExpenseRepository(
     /** Счётчик для бейджа на вкладке «Черновики». */
     fun observePendingCount(): Flow<Int> = pendingDao?.observeCount() ?: flowOf(0)
 
+    /** Сколько операций сейчас ждут решения — для напоминаний о переполнении очереди. */
+    suspend fun pendingCount(): Int = pendingDao?.count() ?: 0
+
     /**
      * Кладёт распознанную из уведомления операцию в очередь подтверждения.
      *
@@ -359,14 +368,18 @@ class ExpenseRepository(
      * Категория подставляется по истории подтверждений, затем по встроенному словарю;
      * если ничего не совпало — остаётся пустой, пользователь выберет сам.
      *
-     * @return id созданной записи очереди или null, если операция отброшена как дубликат.
+     * @return результат приёма: созданная запись либо причина отказа (её пишет журнал).
      */
-    suspend fun addPendingOperation(entry: PendingEntry): Long? {
-        val dao = pendingDao ?: return null
+    suspend fun addPendingOperation(entry: PendingEntry): IngestOutcome {
+        val dao = pendingDao ?: return IngestOutcome.Unavailable
 
-        if (expenseDao.countByExternalId(SOURCE_NOTIFICATION, entry.dedupKey) > 0) return null
+        if (expenseDao.countByExternalId(SOURCE_NOTIFICATION, entry.dedupKey) > 0) {
+            return IngestOutcome.Duplicate("такая операция уже подтверждена и лежит в тратах")
+        }
         val since = entry.postedAtMillis - RECENT_DUPLICATE_WINDOW_MILLIS
-        if (dao.countSimilarRecent(entry.bank, entry.amountMinor, entry.rawText, since) > 0) return null
+        if (dao.countSimilarRecent(entry.bank, entry.amountMinor, entry.rawText, since) > 0) {
+            return IngestOutcome.Duplicate("такой же текст уведомления уже приходил за последние 5 минут")
+        }
 
         val suggestion = suggestCategory(entry)
         val id = dao.insertIgnore(
@@ -390,7 +403,20 @@ class ExpenseRepository(
                 createdAt = System.currentTimeMillis(),
             )
         )
-        return id.takeIf { it > 0 }
+        if (id <= 0) return IngestOutcome.Duplicate("ключ дедупликации уже есть в очереди")
+
+        val category = suggestion?.categoryId?.let { categoryId ->
+            categoryDao.getAll().firstOrNull { it.id == categoryId }
+        }
+        val subcategory = suggestion?.subcategoryId?.let { subId ->
+            category?.let { categoryDao.getSubcategories(it.id).firstOrNull { sub -> sub.id == subId } }
+        }
+        return IngestOutcome.Created(
+            id = id,
+            categoryName = category?.name,
+            subcategoryName = subcategory?.name,
+            suggestionSource = suggestion?.source,
+        )
     }
 
     suspend fun getPendingOperation(id: Long): PendingOperation? {
@@ -659,6 +685,25 @@ data class PendingEntry(
     val suggestedCategoryName: String? = null,
     val suggestedSubcategoryName: String? = null,
 )
+
+/** Результат приёма операции из уведомления в очередь подтверждения. */
+sealed interface IngestOutcome {
+    data class Created(
+        val id: Long,
+        val categoryName: String?,
+        val subcategoryName: String?,
+        val suggestionSource: SuggestionSource?,
+    ) : IngestOutcome
+
+    /** Операция отброшена как повтор; [reason] пишется в журнал диагностики. */
+    data class Duplicate(val reason: String) : IngestOutcome
+
+    /** Очередь недоступна (репозиторий собран без DAO очереди — только в тестах). */
+    data object Unavailable : IngestOutcome
+
+    /** id созданной записи или null, если ничего не создано. */
+    val createdId: Long? get() = (this as? Created)?.id
+}
 
 /** Результат подтверждения операции из очереди. */
 sealed interface ConfirmResult {

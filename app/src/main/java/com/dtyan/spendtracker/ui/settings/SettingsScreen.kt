@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Share
@@ -57,6 +58,7 @@ import com.dtyan.spendtracker.BuildConfig
 import com.dtyan.spendtracker.data.SettingsStore
 import com.dtyan.spendtracker.notifications.BankCatalog
 import com.dtyan.spendtracker.notifications.NotificationAccess
+import com.dtyan.spendtracker.notifications.Reminders
 
 /**
  * «Ещё» — настройки автоучёта из уведомлений и переходы в остальные разделы.
@@ -71,6 +73,7 @@ fun SettingsScreen(
     onOpenImport: () -> Unit,
     onOpenExport: () -> Unit,
     onOpenCategories: () -> Unit,
+    onOpenDiagnostics: () -> Unit,
 ) {
     val context = LocalContext.current
     val state by settings.observe().collectAsState(initial = settings.current())
@@ -136,6 +139,15 @@ fun SettingsScreen(
                 }
             }
 
+            item(key = "reminders") {
+                RemindersCard(
+                    remindQueueOverflow = state.remindQueueOverflow,
+                    remindInactivity = state.remindInactivity,
+                    onToggleQueue = settings::setRemindQueueOverflow,
+                    onToggleInactivity = settings::setRemindInactivity,
+                )
+            }
+
             item(key = "sections") {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column {
@@ -158,6 +170,13 @@ fun SettingsScreen(
                             subtitle = "Свои категории и подкатегории",
                             icon = { Icon(Icons.Filled.Category, contentDescription = null) },
                             onClick = onOpenCategories,
+                        )
+                        HorizontalDivider()
+                        SectionRow(
+                            title = "Журнал автоучёта",
+                            subtitle = "Что пришло, как распозналось, что вы выбрали — с выгрузкой файлом",
+                            icon = { Icon(Icons.Filled.Description, contentDescription = null) },
+                            onClick = onOpenDiagnostics,
                         )
                     }
                 }
@@ -227,6 +246,56 @@ private fun AutoCaptureCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Напоминания разобрать очередь. Оба отключаемы: навязчивые напоминания —
+ * первая причина, по которой приложению отключают уведомления целиком.
+ */
+@Composable
+private fun RemindersCard(
+    remindQueueOverflow: Boolean,
+    remindInactivity: Boolean,
+    onToggleQueue: (Boolean) -> Unit,
+    onToggleInactivity: (Boolean) -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp)) {
+            Text(
+                text = "Напоминания",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Когда накопились черновики", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        text = "Напомним, если неразобранных операций станет больше " +
+                            "${Reminders.QUEUE_THRESHOLD}. Без звука, не чаще раза в сутки.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Switch(checked = remindQueueOverflow, onCheckedChange = onToggleQueue)
+            }
+            Spacer(Modifier.height(14.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Если не заходил сутки", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        text = "Вечернее напоминание со звуком, если приложение не открывали " +
+                            "больше суток.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Switch(checked = remindInactivity, onCheckedChange = onToggleInactivity)
             }
         }
     }

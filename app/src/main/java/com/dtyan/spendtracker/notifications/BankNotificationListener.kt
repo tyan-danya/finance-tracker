@@ -4,6 +4,8 @@ import android.app.Notification
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import com.dtyan.spendtracker.SpendApp
+import com.dtyan.spendtracker.data.LogLevel
+import com.dtyan.spendtracker.data.LogStage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -25,14 +27,54 @@ class BankNotificationListener : NotificationListenerService() {
 
     private val app: SpendApp? get() = application as? SpendApp
 
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        val container = app?.container ?: return
+        scope.launch {
+            container.diagnosticsLog.log(
+                stage = LogStage.SERVICE,
+                message = "Слушатель уведомлений подключён системой",
+                details = "автоучёт: ${if (container.settings.current().enabled) "включён" else "выключен"}",
+            )
+        }
+    }
+
+    override fun onListenerDisconnected() {
+        super.onListenerDisconnected()
+        val container = app?.container ?: return
+        scope.launch {
+            container.diagnosticsLog.log(
+                stage = LogStage.SERVICE,
+                message = "Слушатель уведомлений отключён системой",
+                level = LogLevel.WARN,
+            )
+        }
+    }
+
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         val notification = sbn?.notification ?: return
         val packageName = sbn.packageName ?: return
 
-        // Сводки групп и «висящие» служебные уведомления операциями не бывают.
-        if (notification.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
-        if (notification.flags and Notification.FLAG_ONGOING_EVENT != 0) return
+        // Чужие приложения не читаем вовсе — даже в журнал они не попадают.
         if (BankCatalog.byPackage(packageName) == null) return
+
+        val container = app?.container ?: return
+
+        // Сводки групп и «висящие» служебные уведомления операциями не бывают.
+        val skipReason = when {
+            notification.flags and Notification.FLAG_GROUP_SUMMARY != 0 -> "сводка группы уведомлений"
+            notification.flags and Notification.FLAG_ONGOING_EVENT != 0 -> "постоянное (ongoing) уведомление"
+            else -> null
+        }
+        if (skipReason != null) {
+            scope.launch {
+                container.diagnosticsLog.log(
+                    stage = LogStage.NOTIFICATION,
+                    message = "Пропущено служебное уведомление $packageName: $skipReason",
+                )
+            }
+            return
+        }
 
         val extras = notification.extras ?: return
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
@@ -44,15 +86,38 @@ class BankNotificationListener : NotificationListenerService() {
         if (title.isNullOrBlank() && text.isBlank()) return
 
         val postedAt = sbn.postTime.takeIf { it > 0 } ?: System.currentTimeMillis()
-        val container = app?.container ?: return
 
         scope.launch {
             runCatching {
                 val pendingId = container.notificationIntake
                     .handle(packageName, title, text, postedAt) ?: return@runCatching
-                if (!container.settings.current().notifyOnCapture) return@runCatching
-                val operation = container.repository.getPendingOperation(pendingId) ?: return@runCatching
-                PendingNotifier(applicationContext).notifyPending(operation)
+
+                val notifier = PendingNotifier(applicationContext)
+                if (container.settings.current().notifyOnCapture) {
+                    val operation = container.repository.getPendingOperation(pendingId)
+                    if (operation != null) {
+                        notifier.notifyPending(operation)
+                        container.diagnosticsLog.log(
+                            stage = LogStage.SERVICE,
+                            message = "Показано своё уведомление по операции #$pendingId",
+                        )
+                    }
+                } else {
+                    container.diagnosticsLog.log(
+                        stage = LogStage.SERVICE,
+                        message = "Своё уведомление не показано: отключено в настройках",
+                    )
+                }
+
+                // Очередь могла переполниться этой операцией — напоминаем разобрать.
+                container.reminders.notifyIfQueueOverflowed()
+            }.onFailure { error ->
+                container.diagnosticsLog.log(
+                    stage = LogStage.SERVICE,
+                    message = "Сбой при обработке уведомления: ${error.javaClass.simpleName}",
+                    details = error.message,
+                    level = LogLevel.ERROR,
+                )
             }
         }
     }

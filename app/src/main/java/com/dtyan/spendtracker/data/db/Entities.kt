@@ -169,3 +169,27 @@ data class ImportBatchEntity(
     val periodFromEpochDay: Long?,
     val periodToEpochDay: Long?,
 )
+
+/**
+ * Запись журнала диагностики автоучёта.
+ *
+ * Журнал нужен, чтобы разбирать «почему эта трата не появилась» и «почему категория
+ * подобралась так»: в нём видно каждое уведомление, решение парсера, дедупликацию и
+ * выбор пользователя. Живёт только на устройстве, выгружается файлом вручную.
+ */
+@Entity(
+    tableName = "diag_log",
+    indices = [Index(value = ["at"])],
+)
+data class DiagLogEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    /** Время события, мс. */
+    val at: Long,
+    /** Этап: NOTIFICATION / PARSE / QUEUE / CONFIRM / SETTINGS / SERVICE. */
+    val stage: String,
+    /** INFO / WARN / ERROR. */
+    val level: String,
+    val message: String,
+    /** Подробности: текст уведомления, разобранные поля, причины отказа. */
+    val details: String? = null,
+)

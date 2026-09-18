@@ -173,6 +173,19 @@ class AddExpenseViewModel(
 
     fun dismissError() = _uiState.update { it.copy(error = null) }
 
+    /**
+     * Создаёт категорию прямо из формы ввода и сразу её выбирает — чтобы не уходить
+     * в раздел «Категории» и не терять уже введённую сумму.
+     */
+    fun addCategory(name: String, icon: String, colorArgb: Int) {
+        if (name.isBlank()) return
+        val isIncome = _uiState.value.isIncome
+        viewModelScope.launch {
+            val id = repository.addCategory(name, icon, colorArgb, isIncome)
+            if (id > 0) _uiState.update { it.copy(categoryId = id, subcategoryId = null) }
+        }
+    }
+
     /** Создаёт подкатегорию в текущей категории и сразу её выбирает. */
     fun addSubcategory(name: String) {
         val categoryId = _uiState.value.categoryId ?: return

@@ -74,6 +74,7 @@ import com.dtyan.spendtracker.domain.model.EntryType
 import com.dtyan.spendtracker.domain.model.PaymentMethod
 import com.dtyan.spendtracker.domain.model.Period
 import com.dtyan.spendtracker.ui.components.ConfirmDialog
+import com.dtyan.spendtracker.ui.components.NewCategoryDialog
 import com.dtyan.spendtracker.ui.components.TextInputDialog
 import java.time.Instant
 import java.time.LocalDate
@@ -101,6 +102,7 @@ fun AddExpenseScreen(
     var showDatePicker by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showNewSubcategory by remember { mutableStateOf(false) }
+    var showNewCategory by remember { mutableStateOf(false) }
 
     val amountFocus = remember { FocusRequester() }
 
@@ -215,6 +217,7 @@ fun AddExpenseScreen(
                 trees = state.tree,
                 selectedId = state.categoryId,
                 onSelect = vm::selectCategory,
+                onAddNew = { showNewCategory = true },
             )
             TextButton(onClick = onManageCategories) {
                 Icon(Icons.Filled.Category, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -280,6 +283,17 @@ fun AddExpenseScreen(
             onConfirm = {
                 showDeleteConfirm = false
                 vm.delete()
+            },
+        )
+    }
+
+    if (showNewCategory) {
+        NewCategoryDialog(
+            title = if (state.isIncome) "Новая категория пополнений" else "Новая категория",
+            onDismiss = { showNewCategory = false },
+            onConfirm = { name, icon, color ->
+                showNewCategory = false
+                vm.addCategory(name, icon, color)
             },
         )
     }
@@ -400,15 +414,9 @@ private fun CategoryChips(
     trees: List<CategoryTree>,
     selectedId: Long?,
     onSelect: (Long) -> Unit,
+    onAddNew: () -> Unit,
 ) {
-    if (trees.isEmpty()) {
-        Text(
-            text = "Категорий пока нет — добавьте их в разделе «Категории»",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        return
-    }
+
     FlowRow(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -437,6 +445,13 @@ private fun CategoryChips(
                 ),
             )
         }
+        // Новая категория заводится здесь же — форма ввода при этом не теряется.
+        FilterChip(
+            selected = false,
+            onClick = onAddNew,
+            label = { Text("Новая категория") },
+            leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp)) },
+        )
     }
 }
 

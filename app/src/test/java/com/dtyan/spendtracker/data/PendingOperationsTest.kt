@@ -62,7 +62,7 @@ class PendingOperationsTest {
     /** Кладёт уведомление в очередь так же, как это делает сервис. */
     private suspend fun ingest(text: String, at: Long = postedAt, title: String = "Покупка"): Long? {
         val parsed = NotificationParser.parse(TBANK, title, text, at) ?: return null
-        return repository.addPendingOperation(parsed.toEntry(zone))
+        return repository.addPendingOperation(parsed.toEntry(zone)).createdId
     }
 
     private val purchase = "Покупка, карта *1234. 1 500 ₽. Пятёрочка. Доступно 12 345 ₽"
@@ -243,5 +243,31 @@ class PendingOperationsTest {
 
         assertThat(removed).isEqualTo(2)
         assertThat(repository.observePendingOperations().first()).isEmpty()
+    }
+
+    @Test
+    fun `повторный приём возвращает объяснимую причину отказа`() = runTest {
+        repository.seedDefaultsIfEmpty()
+        val parsed = NotificationParser.parse(TBANK, "Покупка", purchase, postedAt)!!
+        repository.addPendingOperation(parsed.toEntry(zone))
+
+        val second = repository.addPendingOperation(parsed.toEntry(zone))
+
+        assertThat(second).isInstanceOf(IngestOutcome.Duplicate::class.java)
+        assertThat((second as IngestOutcome.Duplicate).reason).isNotEmpty()
+    }
+
+    @Test
+    fun `приём сообщает, какая категория подобралась`() = runTest {
+        repository.seedDefaultsIfEmpty()
+        val parsed = NotificationParser.parse(TBANK, "Покупка", purchase, postedAt)!!
+
+        val outcome = repository.addPendingOperation(parsed.toEntry(zone))
+
+        assertThat(outcome).isInstanceOf(IngestOutcome.Created::class.java)
+        val created = outcome as IngestOutcome.Created
+        assertThat(created.categoryName).isEqualTo("Продукты")
+        assertThat(created.subcategoryName).isEqualTo("Супермаркет")
+        assertThat(created.suggestionSource).isEqualTo(SuggestionSource.DICTIONARY)
     }
 }

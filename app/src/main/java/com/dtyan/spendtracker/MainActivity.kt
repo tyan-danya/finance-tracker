@@ -26,8 +26,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val container = (application as SpendApp).container
-        // Канал создаём заранее: иначе первое уведомление о распознанной операции не покажется.
+        // Каналы создаём заранее: иначе первое уведомление о распознанной операции не покажется.
         PendingNotifier(applicationContext).ensureChannel()
+        container.reminders.ensureChannel()
+        // Расписание напоминаний идемпотентно — просто переставляем его при каждом запуске.
+        container.reminders.scheduleDailyCheck()
 
         setContent {
             // Каждое нажатие на наше уведомление увеличивает счётчик — навигация в «Черновики»
@@ -45,10 +48,17 @@ class MainActivity : ComponentActivity() {
                 AppNav(
                     repository = container.repository,
                     settings = container.settings,
+                    log = container.diagnosticsLog,
                     openPendingTicket = openPendingTicket,
                 )
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Отметка «заходил»: по ней решается, напоминать ли о суточном простое.
+        (application as? SpendApp)?.container?.settings?.markOpenedNow()
     }
 
     companion object {

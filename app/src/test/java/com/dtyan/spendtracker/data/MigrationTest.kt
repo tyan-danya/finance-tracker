@@ -139,4 +139,26 @@ class MigrationTest {
         }
         assertThat(indexes).contains("index_pending_operations_dedupKey")
     }
+
+    @Test
+    fun `миграция 3 to 4 добавляет журнал диагностики`() {
+        db.insert("categories", 0, ContentValues().apply {
+            put("id", 1L); put("name", "Продукты"); put("icon", "🛒"); put("colorArgb", -1)
+            put("isBuiltIn", 1); put("sortOrder", 0); put("archived", 0)
+        })
+
+        AppDatabase.MIGRATION_1_2.migrate(db)
+        AppDatabase.MIGRATION_2_3.migrate(db)
+        AppDatabase.MIGRATION_3_4.migrate(db)
+
+        db.query("SELECT COUNT(*) FROM diag_log").use { c ->
+            assertThat(c.moveToFirst()).isTrue()
+            assertThat(c.getInt(0)).isEqualTo(0)
+        }
+        // Категория пережила все миграции.
+        db.query("SELECT name FROM categories WHERE id = 1").use { c ->
+            assertThat(c.moveToFirst()).isTrue()
+            assertThat(c.getString(0)).isEqualTo("Продукты")
+        }
+    }
 }

@@ -193,4 +193,43 @@ class NotificationParserTest {
 
         assertThat(second!!.dedupKey).isNotEqualTo(first!!.dedupKey)
     }
+
+    // --- причины отказа: их читает человек в журнале диагностики ---
+
+    @Test
+    fun `отказ объясняет, что приложение не банковское`() {
+        val outcome = NotificationParser.analyze("com.whatsapp", "Друг", "Покупка 500 ₽", time)
+
+        assertThat(outcome).isInstanceOf(ParseOutcome.Ignored::class.java)
+        assertThat((outcome as ParseOutcome.Ignored).reason).contains("не из списка банков")
+    }
+
+    @Test
+    fun `отказ объясняет, что в тексте нет суммы`() {
+        val outcome = NotificationParser.analyze(TBANK, "Т-Банк", "Ваша карта готова к получению", time)
+
+        assertThat((outcome as ParseOutcome.Ignored).reason).contains("нет суммы")
+    }
+
+    @Test
+    fun `отказ называет слово, из-за которого уведомление признано не операцией`() {
+        val outcome = NotificationParser.analyze(TBANK, "Т-Банк", "Вам одобрен кредит 300 000 ₽", time)
+
+        assertThat((outcome as ParseOutcome.Ignored).reason).contains("одобрен")
+    }
+
+    @Test
+    fun `отказ объясняет незнакомого отправителя СМС`() {
+        val outcome = NotificationParser.analyze(SMS, "Мама", "Переведи 500 руб", time)
+
+        assertThat((outcome as ParseOutcome.Ignored).reason).contains("не банковский")
+    }
+
+    @Test
+    fun `успешный разбор возвращает операцию`() {
+        val outcome = NotificationParser.analyze(TBANK, "Покупка", "Покупка, карта *1234. 500 ₽. ПЯТЁРОЧКА", time)
+
+        assertThat(outcome).isInstanceOf(ParseOutcome.Parsed::class.java)
+        assertThat((outcome as ParseOutcome.Parsed).notification.amountMinor).isEqualTo(50_000)
+    }
 }

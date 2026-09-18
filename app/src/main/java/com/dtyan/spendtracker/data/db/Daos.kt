@@ -290,3 +290,30 @@ interface ImportBatchDao {
     @Query("DELETE FROM import_batches WHERE id = :id")
     suspend fun delete(id: Long)
 }
+
+@Dao
+interface DiagLogDao {
+
+    @Query("SELECT * FROM diag_log ORDER BY at DESC, id DESC LIMIT :limit")
+    fun observeRecent(limit: Int): Flow<List<DiagLogEntity>>
+
+    /** Вся история по возрастанию времени — в таком порядке журнал выгружается в файл. */
+    @Query("SELECT * FROM diag_log ORDER BY at ASC, id ASC")
+    suspend fun getAll(): List<DiagLogEntity>
+
+    @Insert
+    suspend fun insert(entry: DiagLogEntity): Long
+
+    @Query("SELECT COUNT(*) FROM diag_log")
+    fun observeCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM diag_log")
+    suspend fun count(): Int
+
+    /** Кольцевой буфер: оставляем только [keep] самых свежих записей. */
+    @Query("DELETE FROM diag_log WHERE id NOT IN (SELECT id FROM diag_log ORDER BY id DESC LIMIT :keep)")
+    suspend fun trim(keep: Int)
+
+    @Query("DELETE FROM diag_log")
+    suspend fun deleteAll()
+}

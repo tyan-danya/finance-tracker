@@ -246,6 +246,12 @@ object BankCatalog {
 // notifications/NotificationParser.kt — чистая функция, без Android
 object NotificationParser {
     fun parse(packageName: String, title: String?, text: String?, postedAtMillis: Long): ParsedNotification?
+    /** То же, но с причиной отказа — её пишет журнал диагностики. */
+    fun analyze(packageName: String, title: String?, text: String?, postedAtMillis: Long): ParseOutcome
+}
+sealed interface ParseOutcome {
+    data class Parsed(val notification: ParsedNotification) : ParseOutcome
+    data class Ignored(val reason: String) : ParseOutcome
 }
 enum class NotificationKind { PURCHASE, WITHDRAWAL, TRANSFER_OUT, INCOME, REFUND, UNKNOWN }
 data class ParsedNotification(/* bank, kind, amountMinor, currency, merchant, cardMask, rawText… */) {
@@ -272,6 +278,29 @@ object NotificationAccess {
     fun isInstalled(context, source: BankSource): Boolean
 }
 
+// data/DiagnosticsLog.kt — журнал автоучёта (БД v4, таблица diag_log)
+enum class LogStage { NOTIFICATION, PARSE, QUEUE, CONFIRM, SETTINGS, SERVICE }
+enum class LogLevel { INFO, WARN, ERROR }
+class DiagnosticsLog(dao: DiagLogDao, settings: SettingsStore) {
+    suspend fun log(stage: LogStage, message: String, details: String? = null, level: LogLevel = INFO)
+    fun observeRecent(limit: Int = 500): Flow<List<LogRecord>>
+    fun observeCount(): Flow<Int>
+    suspend fun getAll(): List<LogRecord>       // по возрастанию времени, для выгрузки
+    suspend fun clear()
+}
+object DiagnosticsExporter {
+    fun build(records: List<LogRecord>, settings: AutoCaptureSettings,
+              environment: List<Pair<String, String>>): String
+}
+
+// notifications/Reminders.kt — напоминания разобрать очередь
+class Reminders(context, repository, settings, log) {
+    fun ensureChannel(); fun scheduleDailyCheck()
+    suspend fun notifyIfQueueOverflowed()      // порог Reminders.QUEUE_THRESHOLD = 10
+    suspend fun runDailyCheck()                // + «не заходили сутки», со звуком
+}
+class ReminderReceiver : BroadcastReceiver()   // BOOT_COMPLETED и ежедневный будильник
+
 // data/SettingsStore.kt
 data class AutoCaptureSettings(val enabled: Boolean, val enabledBanks: Set<String>,
                                val notifyOnCapture: Boolean, val onboardingShown: Boolean)
@@ -285,7 +314,8 @@ class SettingsStore(context) {
 // data/ExpenseRepository.kt — новые методы (существующие не менялись)
 fun observePendingOperations(): Flow<List<PendingOperation>>
 fun observePendingCount(): Flow<Int>
-suspend fun addPendingOperation(entry: PendingEntry): Long?
+suspend fun addPendingOperation(entry: PendingEntry): IngestOutcome
+suspend fun pendingCount(): Int
 suspend fun getPendingOperation(id: Long): PendingOperation?
 suspend fun setPendingCategory(id: Long, categoryId: Long?, subcategoryId: Long?)
 suspend fun confirmPendingOperation(id: Long, draft: ExpenseDraft): ConfirmResult

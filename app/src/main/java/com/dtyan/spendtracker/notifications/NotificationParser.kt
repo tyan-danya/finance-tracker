@@ -110,11 +110,24 @@ object NotificationParser {
         title: String?,
         text: String?,
         postedAtMillis: Long,
-    ): ParsedNotification? {
-        val source = BankCatalog.byPackage(packageName) ?: return null
+    ): ParsedNotification? = (analyze(packageName, title, text, postedAtMillis) as? ParseOutcome.Parsed)?.notification
+
+    /**
+     * Та же логика, что и [parse], но с объяснением решения: journal автоучёта пишет
+     * причину отказа дословно, иначе разобрать «почему трата не появилась» невозможно.
+     */
+    fun analyze(
+        packageName: String,
+        title: String?,
+        text: String?,
+        postedAtMillis: Long,
+    ): ParseOutcome {
+        val source = BankCatalog.byPackage(packageName)
+            ?: return ParseOutcome.Ignored("приложение не из списка банков")
         val bank = if (source.isSms) {
             // Из СМС-приложения читаем только сообщения известных банковских отправителей.
-            BankCatalog.bankBySmsSender(title) ?: return null
+            BankCatalog.bankBySmsSender(title)
+                ?: return ParseOutcome.Ignored("отправитель СМС «${title.orEmpty()}» не банковский")
         } else {
             source.code
         }
@@ -125,21 +138,45 @@ object NotificationParser {
             text?.takeIf { it.isNotBlank() },
         ).joinToString(". ")
         val raw = body.replace(Regex("""\s+"""), " ").trim()
-        if (raw.isEmpty()) return null
+        if (raw.isEmpty()) return ParseOutcome.Ignored("пустой текст уведомления")
 
         val lower = raw.lowercase()
-        if (hardIgnoreMarkers.any { it in lower }) return null
+        hardIgnoreMarkers.firstOrNull { it in lower }?.let {
+            return ParseOutcome.Ignored("не операция: в тексте «$it»")
+        }
 
         val kind = detectKind(lower)
-        val money = findAmount(raw) ?: return null
+        val money = findAmount(raw)
+            ?: return ParseOutcome.Ignored("в тексте нет суммы с валютой")
 
         // Нет ни одного признака операции — берём только если текст короткий и похож
         // на операционный (есть сумма). Такое уходит в «не распознано» на ручной разбор.
-        if (kind == NotificationKind.UNKNOWN && raw.length > 160) return null
+        if (kind == NotificationKind.UNKNOWN && raw.length > MAX_UNKNOWN_LENGTH) {
+            return ParseOutcome.Ignored(
+                "нет слова операции (покупка/оплата/зачисление…), а текст длиннее $MAX_UNKNOWN_LENGTH символов"
+            )
+        }
 
-        val amountMinor = MoneyFormat.parseToMinor(money.value.groupValues[1]) ?: return null
-        if (amountMinor <= 0) return null
+        val amountMinor = MoneyFormat.parseToMinor(money.value.groupValues[1])
+            ?: return ParseOutcome.Ignored("сумма «${money.value.groupValues[1]}» не разобралась")
+        if (amountMinor <= 0) return ParseOutcome.Ignored("сумма нулевая")
 
+        return ParseOutcome.Parsed(buildNotification(bank, packageName, kind, amountMinor, money, raw, title, postedAtMillis))
+    }
+
+    /** Порог, после которого текст без слова операции считается не операционным. */
+    private const val MAX_UNKNOWN_LENGTH = 160
+
+    private fun buildNotification(
+        bank: String,
+        packageName: String,
+        kind: NotificationKind,
+        amountMinor: Long,
+        money: Money,
+        raw: String,
+        title: String?,
+        postedAtMillis: Long,
+    ): ParsedNotification {
         return ParsedNotification(
             bank = bank,
             packageName = packageName,

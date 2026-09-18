@@ -82,6 +82,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.dtyan.spendtracker.data.DiagnosticsLog
 import com.dtyan.spendtracker.data.ExpenseRepository
 import com.dtyan.spendtracker.data.SettingsStore
 import com.dtyan.spendtracker.domain.MoneyFormat
@@ -92,6 +93,8 @@ import com.dtyan.spendtracker.domain.model.PaymentMethod
 import com.dtyan.spendtracker.domain.model.PendingOperation
 import com.dtyan.spendtracker.domain.model.PendingStatus
 import com.dtyan.spendtracker.domain.model.Period
+import com.dtyan.spendtracker.ui.components.NewCategoryDialog
+import com.dtyan.spendtracker.ui.components.TextInputDialog
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
@@ -118,10 +121,11 @@ private val IncomeGreen = Color(0xFF2E7D32)
 fun PendingScreen(
     repository: ExpenseRepository,
     settings: SettingsStore,
+    log: DiagnosticsLog,
     onOpenSettings: () -> Unit,
 ) {
     val vm: PendingViewModel = viewModel(
-        factory = viewModelFactory { initializer { PendingViewModel(repository, settings) } }
+        factory = viewModelFactory { initializer { PendingViewModel(repository, settings, log) } }
     )
     val state by vm.state.collectAsState()
     val message by vm.message.collectAsState()
@@ -225,6 +229,10 @@ fun PendingScreen(
                 onCategoryChange = { categoryId, subcategoryId ->
                     vm.setCategory(operation.id, categoryId, subcategoryId)
                 },
+                onCreateCategory = { name, icon, color, isIncome ->
+                    vm.createCategory(name, icon, color, isIncome)
+                },
+                onCreateSubcategory = { categoryId, name -> vm.createSubcategory(categoryId, name) },
                 onConfirm = { draft ->
                     vm.confirm(operation, draft)
                     scope.launch { sheetState.hide() }.invokeOnCompletion { editing = null }
@@ -399,6 +407,15 @@ private fun PendingCard(
                     fontWeight = FontWeight.Bold,
                     color = if (operation.isIncome) IncomeGreen else MaterialTheme.colorScheme.onSurface,
                 )
+                // Отклонение — негромкое действие, поэтому иконкой в углу карточки,
+                // а не третьей кнопкой в ряду внизу.
+                IconButton(onClick = onReject) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = "Отклонить",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
 
             Spacer(Modifier.height(10.dp))
@@ -424,30 +441,26 @@ private fun PendingCard(
                 )
             }
 
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(10.dp))
+            // Две равные кнопки во всю ширину: подписи целиком помещаются на любом экране.
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(onClick = onReject) {
-                    Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Отклонить")
-                }
-                Box(Modifier.weight(1f))
-                OutlinedButton(onClick = onEdit) {
+                OutlinedButton(onClick = onEdit, modifier = Modifier.weight(1f)) {
                     Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(6.dp))
                     Text("Изменить")
                 }
                 Button(
                     onClick = onConfirm,
                     enabled = operation.isReadyToConfirm,
+                    modifier = Modifier.weight(1f),
                 ) {
                     Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("В траты")
+                    Spacer(Modifier.width(6.dp))
+                    Text("Подтвердить")
                 }
             }
         }
@@ -539,9 +552,15 @@ private fun PendingEditSheet(
     operation: PendingOperation,
     categoriesFor: (EntryType) -> List<CategoryTree>,
     onCategoryChange: (Long?, Long?) -> Unit,
+    /** Создать категорию прямо отсюда; возвращает id созданной. */
+    onCreateCategory: suspend (name: String, icon: String, colorArgb: Int, isIncome: Boolean) -> Long,
+    onCreateSubcategory: suspend (categoryId: Long, name: String) -> Long,
     onConfirm: (ExpenseDraft) -> Unit,
     onReject: () -> Unit,
 ) {
+    val scope = rememberCoroutineScope()
+    var showNewCategory by remember { mutableStateOf(false) }
+    var showNewSubcategory by remember { mutableStateOf(false) }
     // Сумма в поле — без разделителей разрядов: её сразу можно править с клавиатуры.
     var amountText by remember(operation.id) {
         mutableStateOf(
@@ -666,9 +685,18 @@ private fun PendingEditSheet(
                     ),
                 )
             }
+            // Нужной категории может не быть — заводим её здесь же, не уходя с карточки.
+            FilterChip(
+                selected = false,
+                onClick = { showNewCategory = true },
+                label = { Text("Новая категория") },
+                leadingIcon = {
+                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                },
+            )
         }
 
-        AnimatedVisibility(visible = subcategories.isNotEmpty()) {
+        AnimatedVisibility(visible = categoryId != null) {
             Column {
                 Text(
                     text = "Подкатегория",
@@ -691,6 +719,14 @@ private fun PendingEditSheet(
                             label = { Text(sub.name) },
                         )
                     }
+                    FilterChip(
+                        selected = false,
+                        onClick = { showNewSubcategory = true },
+                        label = { Text("Добавить") },
+                        leadingIcon = {
+                            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        },
+                    )
                 }
             }
         }
@@ -779,6 +815,45 @@ private fun PendingEditSheet(
                 modifier = Modifier.padding(top = 6.dp),
             )
         }
+    }
+
+    if (showNewCategory) {
+        NewCategoryDialog(
+            title = if (type == EntryType.INCOME) "Новая категория пополнений" else "Новая категория",
+            onDismiss = { showNewCategory = false },
+            onConfirm = { name, icon, color ->
+                showNewCategory = false
+                scope.launch {
+                    val id = onCreateCategory(name, icon, color, type == EntryType.INCOME)
+                    if (id > 0) {
+                        categoryId = id
+                        subcategoryId = null
+                        onCategoryChange(id, null)
+                    }
+                }
+            },
+        )
+    }
+
+    if (showNewSubcategory) {
+        val parentId = categoryId
+        TextInputDialog(
+            title = "Новая подкатегория",
+            label = "Название",
+            onDismiss = { showNewSubcategory = false },
+            onConfirm = { name ->
+                showNewSubcategory = false
+                if (parentId != null) {
+                    scope.launch {
+                        val id = onCreateSubcategory(parentId, name)
+                        if (id > 0) {
+                            subcategoryId = id
+                            onCategoryChange(parentId, id)
+                        }
+                    }
+                }
+            },
+        )
     }
 
     if (showDatePicker) {

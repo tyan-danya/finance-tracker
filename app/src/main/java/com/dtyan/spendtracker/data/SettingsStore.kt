@@ -18,6 +18,12 @@ data class AutoCaptureSettings(
     val notifyOnCapture: Boolean = true,
     /** Онбординг про доступ к уведомлениям уже показывали. */
     val onboardingShown: Boolean = false,
+    /** Вести журнал диагностики автоучёта (тексты уведомлений и решения парсера). */
+    val diagnosticsEnabled: Boolean = true,
+    /** Напоминать, когда в очереди накопилось много неразобранных операций. */
+    val remindQueueOverflow: Boolean = true,
+    /** Напоминать со звуком, если в приложение не заходили больше суток. */
+    val remindInactivity: Boolean = true,
 ) {
     fun isBankEnabled(code: String): Boolean = enabled && code in enabledBanks
 }
@@ -40,6 +46,9 @@ class SettingsStore(context: Context) {
         enabledBanks = prefs.getStringSet(KEY_BANKS, null) ?: BankCatalog.defaultEnabledCodes,
         notifyOnCapture = prefs.getBoolean(KEY_NOTIFY, true),
         onboardingShown = prefs.getBoolean(KEY_ONBOARDING, false),
+        diagnosticsEnabled = prefs.getBoolean(KEY_DIAGNOSTICS, true),
+        remindQueueOverflow = prefs.getBoolean(KEY_REMIND_QUEUE, true),
+        remindInactivity = prefs.getBoolean(KEY_REMIND_INACTIVITY, true),
     )
 
     /** Поток настроек: эмитит текущее значение и все последующие изменения. */
@@ -66,8 +75,41 @@ class SettingsStore(context: Context) {
         prefs.edit().putBoolean(KEY_NOTIFY, enabled).apply()
     }
 
+    fun setDiagnosticsEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_DIAGNOSTICS, enabled).apply()
+    }
+
     fun setOnboardingShown() {
         prefs.edit().putBoolean(KEY_ONBOARDING, true).apply()
+    }
+
+    fun setRemindQueueOverflow(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_REMIND_QUEUE, enabled).apply()
+    }
+
+    fun setRemindInactivity(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_REMIND_INACTIVITY, enabled).apply()
+    }
+
+    // --- отметки времени для напоминаний ---
+
+    /** Когда приложение открывали в последний раз. */
+    fun lastOpenedAt(): Long = prefs.getLong(KEY_LAST_OPENED, 0L)
+
+    fun markOpenedNow() {
+        prefs.edit().putLong(KEY_LAST_OPENED, System.currentTimeMillis()).apply()
+    }
+
+    fun lastOverflowReminderAt(): Long = prefs.getLong(KEY_LAST_OVERFLOW_REMINDER, 0L)
+
+    fun setLastOverflowReminderAt(at: Long) {
+        prefs.edit().putLong(KEY_LAST_OVERFLOW_REMINDER, at).apply()
+    }
+
+    fun lastInactivityReminderAt(): Long = prefs.getLong(KEY_LAST_INACTIVITY_REMINDER, 0L)
+
+    fun setLastInactivityReminderAt(at: Long) {
+        prefs.edit().putLong(KEY_LAST_INACTIVITY_REMINDER, at).apply()
     }
 
     private companion object {
@@ -76,5 +118,11 @@ class SettingsStore(context: Context) {
         const val KEY_BANKS = "auto_capture_banks"
         const val KEY_NOTIFY = "auto_capture_notify"
         const val KEY_ONBOARDING = "auto_capture_onboarding_shown"
+        const val KEY_DIAGNOSTICS = "diagnostics_enabled"
+        const val KEY_REMIND_QUEUE = "remind_queue_overflow"
+        const val KEY_REMIND_INACTIVITY = "remind_inactivity"
+        const val KEY_LAST_OPENED = "last_opened_at"
+        const val KEY_LAST_OVERFLOW_REMINDER = "last_overflow_reminder_at"
+        const val KEY_LAST_INACTIVITY_REMINDER = "last_inactivity_reminder_at"
     }
 }

@@ -76,3 +76,16 @@ data class ParsedNotification(
         const val DEDUP_WINDOW_MILLIS = 2 * 60 * 1000L
     }
 }
+
+/**
+ * Решение парсера по одному уведомлению.
+ *
+ * Причина отказа — не техническая деталь, а то, что читает человек в журнале
+ * диагностики, когда разбирается, почему трата не появилась.
+ */
+sealed interface ParseOutcome {
+    data class Parsed(val notification: ParsedNotification) : ParseOutcome
+
+    /** Уведомление отброшено; [reason] — человекочитаемое объяснение. */
+    data class Ignored(val reason: String) : ParseOutcome
+}

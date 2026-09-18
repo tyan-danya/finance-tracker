@@ -35,11 +35,13 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.dtyan.spendtracker.data.DiagnosticsLog
 import com.dtyan.spendtracker.data.ExpenseRepository
 import com.dtyan.spendtracker.data.SettingsStore
 import com.dtyan.spendtracker.notifications.NotificationAccess
 import com.dtyan.spendtracker.ui.add.AddExpenseScreen
 import com.dtyan.spendtracker.ui.categories.CategoriesScreen
+import com.dtyan.spendtracker.ui.diag.DiagnosticsScreen
 import com.dtyan.spendtracker.ui.exportui.ExportScreen
 import com.dtyan.spendtracker.ui.importui.ImportScreen
 import com.dtyan.spendtracker.ui.list.ExpenseListScreen
@@ -57,6 +59,7 @@ object Routes {
     const val IMPORT = "import"
     const val EXPORT = "export"
     const val CATEGORIES = "categories"
+    const val DIAGNOSTICS = "diagnostics"
     const val ADD = "add"
     const val EDIT = "edit/{expenseId}"
     const val EDIT_ARG = "expenseId"
@@ -85,6 +88,7 @@ private val tabs = listOf(
 fun AppNav(
     repository: ExpenseRepository,
     settings: SettingsStore,
+    log: DiagnosticsLog,
     /**
      * Счётчик нажатий на уведомление о распознанной операции: при каждом увеличении
      * открываем «Черновики». Именно счётчик, а не флаг, — чтобы срабатывало повторно.
@@ -165,6 +169,7 @@ fun AppNav(
                 PendingScreen(
                     repository = repository,
                     settings = settings,
+                    log = log,
                     onOpenSettings = { navController.switchTab(Routes.MORE) },
                 )
             }
@@ -174,6 +179,16 @@ fun AppNav(
                     onOpenImport = { navController.navigate(Routes.IMPORT) },
                     onOpenExport = { navController.navigate(Routes.EXPORT) },
                     onOpenCategories = { navController.navigate(Routes.CATEGORIES) },
+                    onOpenDiagnostics = { navController.navigate(Routes.DIAGNOSTICS) },
+                )
+            }
+            composable(Routes.DIAGNOSTICS) {
+                DiagnosticsScreen(
+                    log = log,
+                    settings = settings,
+                    onBack = {
+                        if (!navController.popBackStack()) navController.switchTab(Routes.MORE)
+                    },
                 )
             }
             composable(Routes.IMPORT) {

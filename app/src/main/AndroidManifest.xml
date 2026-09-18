@@ -4,6 +4,9 @@
     <!-- Своё уведомление «распознана новая операция». Интернета у приложения по-прежнему нет. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Чтобы после перезагрузки телефона вернуть расписание напоминаний. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <!--
         Пакеты банковских приложений: нужны, чтобы показать в настройках, какие из них
         установлены. Доступ к списку всех приложений (QUERY_ALL_PACKAGES) НЕ запрашивается.
@@ -78,6 +81,20 @@
         <receiver
             android:name=".notifications.PendingActionReceiver"
             android:exported="false" />
+
+        <!--
+            Ежедневная проверка напоминаний и восстановление расписания после перезагрузки.
+            exported="true" требуется для BOOT_COMPLETED; ничего чувствительного приёмник
+            не делает — только считает очередь и показывает напоминание.
+        -->
+        <receiver
+            android:name=".notifications.ReminderReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <provider
             android:name="androidx.core.content.FileProvider"

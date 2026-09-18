@@ -9,10 +9,17 @@ import java.io.File
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
-enum class ExportFormat(val ext: String, val mime: String, val title: String) {
+enum class ExportFormat(
+    val ext: String,
+    val mime: String,
+    val title: String,
+    /** Показывать ли формат на экране экспорта: журнал выгружается со своего экрана. */
+    val userSelectable: Boolean = true,
+) {
     CSV("csv", "text/csv", "CSV — таблица"),
     JSON("json", "application/json", "JSON — полные данные"),
     ANALYSIS("md", "text/markdown", "Отчёт для ИИ-анализа"),
+    LOG("txt", "text/plain", "Журнал автоучёта", userSelectable = false),
 }
 
 /**

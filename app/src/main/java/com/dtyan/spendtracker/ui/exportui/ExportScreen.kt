@@ -100,7 +100,7 @@ fun ExportScreen(repository: ExpenseRepository) {
 
             DataSummaryCard(records)
 
-            ExportFormat.entries.forEach { format ->
+            ExportFormat.entries.filter { it.userSelectable }.forEach { format ->
                 ExportCard(
                     format = format,
                     enabled = hasData && !busy,
@@ -302,6 +302,8 @@ private fun buildContent(format: ExportFormat, records: List<ExpenseRecord>): St
         ExportFormat.CSV -> CsvExporter.export(records)
         ExportFormat.JSON -> JsonExporter.export(records, System.currentTimeMillis(), APP_VERSION)
         ExportFormat.ANALYSIS -> AnalysisBundle.build(records, LocalDate.now())
+        // Журнал автоучёта собирается на своём экране и сюда не попадает.
+        ExportFormat.LOG -> ""
     }
 
 private fun ExportFormat.description(): String = when (this) {
@@ -309,10 +311,12 @@ private fun ExportFormat.description(): String = when (this) {
     ExportFormat.JSON -> "Полные данные, удобно для программной обработки"
     ExportFormat.ANALYSIS ->
         "Готовый markdown-отчёт со сводкой и таблицами — просто приложите его в чат"
+    ExportFormat.LOG -> "Журнал автоучёта — выгружается в разделе «Ещё»"
 }
 
 private fun ExportFormat.icon(): ImageVector = when (this) {
     ExportFormat.CSV -> Icons.Filled.TableChart
     ExportFormat.JSON -> Icons.Filled.Description
     ExportFormat.ANALYSIS -> Icons.Filled.AutoAwesome
+    ExportFormat.LOG -> Icons.Filled.Description
 }

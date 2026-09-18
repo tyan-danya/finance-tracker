@@ -12,6 +12,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.CircleShape
@@ -210,4 +213,60 @@ fun CategoryTitleRow(icon: String, name: String, colorArgb: Int, modifier: Modif
         Text(text = name, style = MaterialTheme.typography.titleMedium)
         CategoryColorDot(colorArgb, modifier = Modifier.padding(start = 2.dp), size = 10.dp)
     }
+}
+
+/**
+ * Диалог создания категории: название, эмодзи и цвет.
+ *
+ * Общий для всех мест, где выбирают категорию, — чтобы новую можно было завести прямо
+ * из выбора, не уходя в раздел «Категории» и не теряя заполненную форму.
+ */
+@Composable
+fun NewCategoryDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (name: String, icon: String, colorArgb: Int) -> Unit,
+    title: String = "Новая категория",
+) {
+    var name by remember { mutableStateOf("") }
+    var icon by remember { mutableStateOf(com.dtyan.spendtracker.data.DefaultCategories.iconChoices.first()) }
+    var color by remember { mutableStateOf(com.dtyan.spendtracker.data.DefaultCategories.palette.first()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Название") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Sentences,
+                        imeAction = ImeAction.Done,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(12.dp))
+                Text("Иконка", style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.height(6.dp))
+                IconPickerGrid(selected = icon, onSelect = { icon = it })
+                Spacer(Modifier.height(12.dp))
+                Text("Цвет", style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.height(6.dp))
+                ColorPickerRow(
+                    colors = com.dtyan.spendtracker.data.DefaultCategories.palette,
+                    selected = color,
+                    onSelect = { color = it },
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(name.trim(), icon, color) },
+                enabled = name.isNotBlank(),
+            ) { Text("Создать") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+    )
 }
